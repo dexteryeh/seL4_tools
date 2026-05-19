@@ -117,16 +117,17 @@ static void slx_v3s_enable_emac_pre_kernel(void)
 {
     slx_v3s_set32(V3S_CCU_AHB1_GATE0, 1u << 17);
     slx_v3s_clear32(V3S_CCU_AHB1_RESET0, 1u << 17);
+    slx_v3s_delay_cycles(120000u);
     slx_v3s_write32(V3S_SYSCON_BASE + 0x30u, V3S_EMAC_SYSCON_VALUE);
 
     slx_v3s_set32(V3S_CCU_BUS_GATE4, 1u << 0);
     slx_v3s_clear32(V3S_CCU_AHB1_RESET2, 1u << 2);
     slx_v3s_delay_cycles(240000u);
     slx_v3s_write32(V3S_SYSCON_BASE + 0x30u, V3S_EMAC_SYSCON_VALUE);
+    slx_v3s_set32(V3S_CCU_AHB1_RESET0, 1u << 17);
+    slx_v3s_delay_cycles(120000u);
     slx_v3s_set32(V3S_CCU_AHB1_RESET2, 1u << 2);
     slx_v3s_delay_cycles(240000u);
-    slx_v3s_set32(V3S_CCU_AHB1_RESET0, 1u << 17);
-    slx_v3s_delay_cycles(360000u);
 }
 
 static void slx_v3s_log_emac_handoff(const char *stage)
