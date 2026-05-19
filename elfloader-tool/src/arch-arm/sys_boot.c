@@ -39,17 +39,42 @@ extern void finish_relocation(int offset, void *_dynamic, unsigned int total_off
 void continue_boot(int was_relocated);
 
 #define V3S_CCU_AHB1_GATE0        0x01c20060u
+#define V3S_CCU_BUS_GATE4         0x01c20070u
 #define V3S_CCU_USB_CLK           0x01c200ccu
 #define V3S_CCU_DRAM_GATE         0x01c20100u
 #define V3S_CCU_MBUS_RESET        0x01c200fcu
 #define V3S_CCU_MBUS_CLK          0x01c2015cu
 #define V3S_CCU_AHB1_RESET0       0x01c202c0u
+#define V3S_CCU_AHB1_RESET2       0x01c202c8u
+#define V3S_SYSCON_BASE           0x01c00000u
+#define V3S_EMAC_BASE             0x01c30000u
 #define V3S_PIO_BASE              0x01c20800u
 #define V3S_USB0_PHY_BASE         0x01c19400u
 #define V3S_USB0_OTG_BASE         0x01c19000u
 #define V3S_USB0_EHCI_BASE        0x01c1a000u
 #define V3S_USB0_OHCI_BASE        0x01c1a400u
 #define V3S_USB0_PMU_BASE         0x01c1a800u
+#define V3S_PIO_PORT_STRIDE       0x24u
+#define V3S_PIO_PORT_D            3u
+#define V3S_PIO_CFG_BASE          0x00u
+#define V3S_PIO_DRV_BASE          0x14u
+#define V3S_PIO_PULL_BASE         0x1cu
+#define V3S_PIO_FUNC_EMAC         2u
+#define V3S_EMAC_SYSCON_EPHY_ADDR (1u << 20)
+#define V3S_EMAC_SYSCON_CLK_24M   (1u << 18)
+#define V3S_EMAC_SYSCON_LED_LOW   (1u << 17)
+#define V3S_EMAC_SYSCON_SHUTDOWN  (1u << 16)
+#define V3S_EMAC_SYSCON_SELECT    (1u << 15)
+#define V3S_EMAC_SYSCON_RMII_EN   (1u << 13)
+#define V3S_EMAC_SYSCON_RGMII     (1u << 2)
+#define V3S_EMAC_SYSCON_ETCS_MASK 0x3u
+#define V3S_EMAC_SYSCON_V3S_DEFAULT 0x00038000u
+#define V3S_EMAC_SYSCON_VALUE \
+    (((V3S_EMAC_SYSCON_V3S_DEFAULT | V3S_EMAC_SYSCON_EPHY_ADDR | \
+       V3S_EMAC_SYSCON_CLK_24M | V3S_EMAC_SYSCON_LED_LOW | \
+       V3S_EMAC_SYSCON_SELECT) & \
+      ~(V3S_EMAC_SYSCON_SHUTDOWN | V3S_EMAC_SYSCON_RMII_EN | \
+        V3S_EMAC_SYSCON_RGMII | V3S_EMAC_SYSCON_ETCS_MASK)))
 
 static inline uint32_t slx_v3s_read32(uintptr_t addr)
 {
@@ -86,6 +111,42 @@ static void slx_v3s_delay_cycles(uint32_t cycles)
     for (volatile uint32_t i = 0; i < cycles; ++i) {
         __asm__ volatile("" ::: "memory");
     }
+}
+
+static void slx_v3s_enable_emac_pre_kernel(void)
+{
+    slx_v3s_set32(V3S_CCU_AHB1_GATE0, 1u << 17);
+    slx_v3s_clear32(V3S_CCU_AHB1_RESET0, 1u << 17);
+    slx_v3s_write32(V3S_SYSCON_BASE + 0x30u, V3S_EMAC_SYSCON_VALUE);
+
+    slx_v3s_set32(V3S_CCU_BUS_GATE4, 1u << 0);
+    slx_v3s_clear32(V3S_CCU_AHB1_RESET2, 1u << 2);
+    slx_v3s_delay_cycles(240000u);
+    slx_v3s_write32(V3S_SYSCON_BASE + 0x30u, V3S_EMAC_SYSCON_VALUE);
+    slx_v3s_set32(V3S_CCU_AHB1_RESET2, 1u << 2);
+    slx_v3s_delay_cycles(240000u);
+    slx_v3s_set32(V3S_CCU_AHB1_RESET0, 1u << 17);
+    slx_v3s_delay_cycles(360000u);
+}
+
+static void slx_v3s_log_emac_handoff(const char *stage)
+{
+    printf("ELF-loader V3S emac handoff %s: ccu_ahb1=0x%08x gate4=0x%08x "
+           "reset0=0x%08x reset2=0x%08x syscon30=0x%08x emac00=0x%08x "
+           "emac04=0x%08x emac48=0x%08x pd_cfg0=0x%08x pd_cfg1=0x%08x "
+           "pd_cfg2=0x%08x\n",
+           stage,
+           slx_v3s_read32(V3S_CCU_AHB1_GATE0),
+           slx_v3s_read32(V3S_CCU_BUS_GATE4),
+           slx_v3s_read32(V3S_CCU_AHB1_RESET0),
+           slx_v3s_read32(V3S_CCU_AHB1_RESET2),
+           slx_v3s_read32(V3S_SYSCON_BASE + 0x30u),
+           slx_v3s_read32(V3S_EMAC_BASE + 0x00u),
+           slx_v3s_read32(V3S_EMAC_BASE + 0x04u),
+           slx_v3s_read32(V3S_EMAC_BASE + 0x48u),
+           slx_v3s_read32(V3S_PIO_BASE + V3S_PIO_PORT_D * V3S_PIO_PORT_STRIDE + V3S_PIO_CFG_BASE),
+           slx_v3s_read32(V3S_PIO_BASE + V3S_PIO_PORT_D * V3S_PIO_PORT_STRIDE + V3S_PIO_CFG_BASE + 4u),
+           slx_v3s_read32(V3S_PIO_BASE + V3S_PIO_PORT_D * V3S_PIO_PORT_STRIDE + V3S_PIO_CFG_BASE + 8u));
 }
 
 static void slx_v3s_usb_phy_write(uint32_t addr, uint32_t data, uint32_t len)
@@ -337,6 +398,9 @@ void continue_boot(int was_relocated)
     slx_v3s_log_usb_handoff("continue-entry");
     slx_v3s_enable_usb_hci_pre_kernel();
     slx_v3s_log_usb_handoff("after-prekernel-hci-enable");
+    slx_v3s_log_emac_handoff("before-prekernel-enable");
+    slx_v3s_enable_emac_pre_kernel();
+    slx_v3s_log_emac_handoff("after-prekernel-enable");
 
     /*
      * If we were relocated, we need to re-initialise the
@@ -373,6 +437,7 @@ void continue_boot(int was_relocated)
 #endif /* CONFIG_MAX_NUM_NODES */
 
     slx_v3s_log_usb_handoff("pre-kernel-entry");
+    slx_v3s_log_emac_handoff("pre-kernel-entry");
 
     if (is_hyp_mode()) {
         printf("Enabling hypervisor MMU and jumping to entry point...\n\n");
